@@ -1,7 +1,7 @@
 "use client";
 
 import type React from "react";
-import { memo, useEffect, useRef, useState } from "react";
+import { memo, useEffect, useRef, useState, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   ArrowDown,
@@ -9,7 +9,6 @@ import {
   ArrowRight,
   ArrowUp,
   Flag,
-  Footprints,
   Timer,
 } from "lucide-react";
 import useWebSocket from "react-use-websocket";
@@ -37,65 +36,16 @@ const MazeRunner: React.FC = () => {
   const lastMoveTime = useRef(Date.now());
   const MOVE_DELAY = 100; // Minimum time (ms) between moves
 
-  useEffect(() => {
-    generateMaze();
-  }, []);
-
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (gameWon || !isPlaying) return;
-
-      if (["ArrowUp", "ArrowRight", "ArrowDown", "ArrowLeft"].includes(e.key)) {
-        e.preventDefault();
-        simulateKeyPress(e.key);
-      }
-    };
-
-    document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [maze, gameWon, isPlaying]);
-
   // Basic WebSocket setup
-  const { sendMessage, lastMessage, readyState } = useWebSocket(
-    "ws://localhost:5000",
-    {
-      onOpen: () => console.log("WebSocket connection established."),
-      onClose: () => console.log("WebSocket connection closed."),
-      onError: (error) => console.error("WebSocket error:", error),
-      //Will attempt to reconnect on all close events, such as server shutting down
-      shouldReconnect: (closeEvent) => true,
-    }
-  );
+  const { sendMessage, lastMessage } = useWebSocket("ws://localhost:5000", {
+    onOpen: () => console.log("WebSocket connection established."),
+    onClose: () => console.log("WebSocket connection closed."),
+    onError: (error) => console.error("WebSocket error:", error),
+    //Will attempt to reconnect on all close events, such as server shutting down
+    shouldReconnect: () => true,
+  });
 
-  useEffect(() => {
-    let interval: NodeJS.Timeout;
-    if (isPlaying && !gameWon) {
-      interval = setInterval(() => {
-        setTimeElapsed((prevTime) => {
-          const newTime = prevTime + 1;
-          // Send current time through WebSocket
-          sendMessage(JSON.stringify({
-            event: 'currentTime',
-            time: newTime
-          }));
-          return newTime;
-        });
-      }, 1000);
-    }
-    return () => clearInterval(interval);
-  }, [isPlaying, gameWon, sendMessage]);
-
-  useEffect(() => {
-    if (maze.length > 0) {
-      drawMaze();
-    }
-  }, [maze]);
-
-  
-
-  console.log(lastMessage?.data);
-
-  const generateMaze = () => {
+  const generateMaze = useCallback(() => {
     const newMaze: Cell[][] = Array(MAZE_HEIGHT)
       .fill(null)
       .map((_, y) =>
@@ -133,7 +83,7 @@ const MazeRunner: React.FC = () => {
     setGameWon(false);
     setTimeElapsed(0);
     setIsPlaying(true);
-  };
+  }, []);
 
   const getUnvisitedNeighbors = (cell: Cell, maze: Cell[][]) => {
     const neighbors: [Cell, string][] = [];
@@ -167,74 +117,77 @@ const MazeRunner: React.FC = () => {
     }
   };
 
-  const drawMaze = (currentPlayerPos = playerPos) => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
+  const drawMaze = useCallback(
+    (currentPlayerPos = playerPos) => {
+      const canvas = canvasRef.current;
+      if (!canvas) return;
 
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
 
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    // Draw maze
-    ctx.strokeStyle = "#4a5568";
-    ctx.lineWidth = 2;
-    maze.forEach((row) => {
-      row.forEach((cell) => {
-        const x = cell.x * CELL_SIZE;
-        const y = cell.y * CELL_SIZE;
+      // Draw maze
+      ctx.strokeStyle = "#4a5568";
+      ctx.lineWidth = 2;
+      maze.forEach((row) => {
+        row.forEach((cell) => {
+          const x = cell.x * CELL_SIZE;
+          const y = cell.y * CELL_SIZE;
 
-        if (cell.walls.top) {
-          ctx.beginPath();
-          ctx.moveTo(x, y);
-          ctx.lineTo(x + CELL_SIZE, y);
-          ctx.stroke();
-        }
-        if (cell.walls.right) {
-          ctx.beginPath();
-          ctx.moveTo(x + CELL_SIZE, y);
-          ctx.lineTo(x + CELL_SIZE, y + CELL_SIZE);
-          ctx.stroke();
-        }
-        if (cell.walls.bottom) {
-          ctx.beginPath();
-          ctx.moveTo(x, y + CELL_SIZE);
-          ctx.lineTo(x + CELL_SIZE, y + CELL_SIZE);
-          ctx.stroke();
-        }
-        if (cell.walls.left) {
-          ctx.beginPath();
-          ctx.moveTo(x, y);
-          ctx.lineTo(x, y + CELL_SIZE);
-          ctx.stroke();
-        }
+          if (cell.walls.top) {
+            ctx.beginPath();
+            ctx.moveTo(x, y);
+            ctx.lineTo(x + CELL_SIZE, y);
+            ctx.stroke();
+          }
+          if (cell.walls.right) {
+            ctx.beginPath();
+            ctx.moveTo(x + CELL_SIZE, y);
+            ctx.lineTo(x + CELL_SIZE, y + CELL_SIZE);
+            ctx.stroke();
+          }
+          if (cell.walls.bottom) {
+            ctx.beginPath();
+            ctx.moveTo(x, y + CELL_SIZE);
+            ctx.lineTo(x + CELL_SIZE, y + CELL_SIZE);
+            ctx.stroke();
+          }
+          if (cell.walls.left) {
+            ctx.beginPath();
+            ctx.moveTo(x, y);
+            ctx.lineTo(x, y + CELL_SIZE);
+            ctx.stroke();
+          }
+        });
       });
-    });
 
-    // Draw player
-    ctx.fillStyle = "#e53e3e";
-    ctx.beginPath();
-    ctx.arc(
-      currentPlayerPos.x * CELL_SIZE + CELL_SIZE / 2,
-      currentPlayerPos.y * CELL_SIZE + CELL_SIZE / 2,
-      PLAYER_SIZE / 2,
-      0,
-      2 * Math.PI
-    );
-    ctx.fill();
+      // Draw player
+      ctx.fillStyle = "#e53e3e";
+      ctx.beginPath();
+      ctx.arc(
+        currentPlayerPos.x * CELL_SIZE + CELL_SIZE / 2,
+        currentPlayerPos.y * CELL_SIZE + CELL_SIZE / 2,
+        PLAYER_SIZE / 2,
+        0,
+        2 * Math.PI
+      );
+      ctx.fill();
 
-    // Draw end point
-    ctx.fillStyle = "#38a169";
-    ctx.beginPath();
-    ctx.arc(
-      (MAZE_WIDTH - 0.5) * CELL_SIZE,
-      (MAZE_HEIGHT - 0.5) * CELL_SIZE,
-      PLAYER_SIZE / 2,
-      0,
-      2 * Math.PI
-    );
-    ctx.fill();
-  };
+      // Draw end point
+      ctx.fillStyle = "#38a169";
+      ctx.beginPath();
+      ctx.arc(
+        (MAZE_WIDTH - 0.5) * CELL_SIZE,
+        (MAZE_HEIGHT - 0.5) * CELL_SIZE,
+        PLAYER_SIZE / 2,
+        0,
+        2 * Math.PI
+      );
+      ctx.fill();
+    },
+    [playerPos]
+  );
 
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
@@ -244,101 +197,105 @@ const MazeRunner: React.FC = () => {
       .padStart(2, "0")}`;
   };
 
-  const handleWebSocketMove = (
-    x: number,
-    y: number,
-    reset: boolean = false
-  ) => {
-    const now = Date.now();
-    if (now - lastMoveTime.current < MOVE_DELAY) 100;
+  const simulateKeyPress = useCallback(
+    (key: string) => {
+      if (gameWon || !isPlaying) return;
 
-    // Divide the space into regions (1023x1023)
-    const centerX = 511.5; // 1023/2
-    const centerY = 511.5;
-    const deadZone = 50; // Creates a small dead zone in the center
+      setPlayerPos((prevPos) => {
+        const newPos = { ...prevPos };
+        let moved = false;
 
-    // Calculate distances from center
-    const deltaX = x - centerX;
-    const deltaY = y - centerY;
-
-    // Only trigger a move if we're outside the dead zone
-    if (Math.abs(deltaX) > deadZone || Math.abs(deltaY) > deadZone) {
-      // Determine the dominant direction
-      if (Math.abs(deltaX) > Math.abs(deltaY)) {
-        // Horizontal movement
-        const key = deltaX > 0 ? "ArrowRight" : "ArrowLeft";
-        simulateKeyPress(key);
-      } else {
-        // Vertical movement - Inverted Y logic
-        const key = deltaY > 0 ? "ArrowUp" : "ArrowDown";
-        simulateKeyPress(key);
-      }
-      lastMoveTime.current = now;
-    }
-    if (reset) {
-      generateMaze();
-    }
-  };
-
-  const simulateKeyPress = (key: string) => {
-    if (gameWon || !isPlaying) return;
-
-    setPlayerPos((prevPos) => {
-      const newPos = { ...prevPos };
-      let moved = false;
-
-      switch (key) {
-        case "ArrowUp":
-          if (prevPos.y > 0 && !maze[prevPos.y][prevPos.x].walls.top) {
-            newPos.y--;
-            moved = true;
-          }
-          break;
-        case "ArrowRight":
-          if (
-            prevPos.x < MAZE_WIDTH - 1 &&
-            !maze[prevPos.y][prevPos.x].walls.right
-          ) {
-            newPos.x++;
-            moved = true;
-          }
-          break;
-        case "ArrowDown":
-          if (
-            prevPos.y < MAZE_HEIGHT - 1 &&
-            !maze[prevPos.y][prevPos.x].walls.bottom
-          ) {
-            newPos.y++;
-            moved = true;
-          }
-          break;
-        case "ArrowLeft":
-          if (prevPos.x > 0 && !maze[prevPos.y][prevPos.x].walls.left) {
-            newPos.x--;
-            moved = true;
-          }
-          break;
-      }
-
-      if (moved) {
-        if (newPos.x === MAZE_WIDTH - 1 && newPos.y === MAZE_HEIGHT - 1) {
-          setGameWon(true);
-          setIsPlaying(false);
-          sendMessage(
-            JSON.stringify({
-              event: "gameWon",
-              time: timeElapsed,
-            })
-          );
+        switch (key) {
+          case "ArrowUp":
+            if (prevPos.y > 0 && !maze[prevPos.y][prevPos.x].walls.top) {
+              newPos.y--;
+              moved = true;
+            }
+            break;
+          case "ArrowRight":
+            if (
+              prevPos.x < MAZE_WIDTH - 1 &&
+              !maze[prevPos.y][prevPos.x].walls.right
+            ) {
+              newPos.x++;
+              moved = true;
+            }
+            break;
+          case "ArrowDown":
+            if (
+              prevPos.y < MAZE_HEIGHT - 1 &&
+              !maze[prevPos.y][prevPos.x].walls.bottom
+            ) {
+              newPos.y++;
+              moved = true;
+            }
+            break;
+          case "ArrowLeft":
+            if (prevPos.x > 0 && !maze[prevPos.y][prevPos.x].walls.left) {
+              newPos.x--;
+              moved = true;
+            }
+            break;
         }
 
-        drawMaze(newPos);
-        return newPos;
+        if (moved) {
+          if (newPos.x === MAZE_WIDTH - 1 && newPos.y === MAZE_HEIGHT - 1) {
+            setGameWon(true);
+            setIsPlaying(false);
+            sendMessage(
+              JSON.stringify({
+                event: "gameWon",
+                time: timeElapsed,
+              })
+            );
+          }
+
+          drawMaze(newPos);
+          return newPos;
+        }
+
+        return prevPos;
+      });
+    },
+    [gameWon, isPlaying, maze, sendMessage, timeElapsed]
+  );
+
+  const handleWebSocketMove = useCallback(
+    (x: number, y: number, reset: boolean = false) => {
+      const now = Date.now();
+      if (now - lastMoveTime.current < MOVE_DELAY) {
+        return;
       }
-      
-      return prevPos;
-    });
-  };
+
+      // Divide the space into regions (1023x1023)
+      const centerX = 511.5; // 1023/2
+      const centerY = 511.5;
+      const deadZone = 50; // Creates a small dead zone in the center
+
+      // Calculate distances from center
+      const deltaX = x - centerX;
+      const deltaY = y - centerY;
+
+      // Only trigger a move if we're outside the dead zone
+      if (Math.abs(deltaX) > deadZone || Math.abs(deltaY) > deadZone) {
+        // Determine the dominant direction
+        if (Math.abs(deltaX) > Math.abs(deltaY)) {
+          // Horizontal movement
+          const key = deltaX > 0 ? "ArrowRight" : "ArrowLeft";
+          simulateKeyPress(key);
+        } else {
+          // Vertical movement - Inverted Y logic
+          const key = deltaY > 0 ? "ArrowUp" : "ArrowDown";
+          simulateKeyPress(key);
+        }
+        lastMoveTime.current = now;
+      }
+      if (reset) {
+        generateMaze();
+      }
+    },
+    [generateMaze, simulateKeyPress]
+  );
 
   useEffect(() => {
     if (lastMessage?.data) {
@@ -349,7 +306,51 @@ const MazeRunner: React.FC = () => {
         console.error("Error parsing WebSocket message:", error);
       }
     }
-  }, [lastMessage]);
+  }, [lastMessage, handleWebSocketMove]);
+
+  useEffect(() => {
+    generateMaze();
+  }, [generateMaze]);
+
+  useEffect(() => {
+    let interval: NodeJS.Timeout;
+    if (isPlaying && !gameWon) {
+      interval = setInterval(() => {
+        setTimeElapsed((prevTime) => {
+          const newTime = prevTime + 1;
+          // Send current time through WebSocket
+          sendMessage(
+            JSON.stringify({
+              event: "currentTime",
+              time: newTime,
+            })
+          );
+          return newTime;
+        });
+      }, 1000);
+    }
+    return () => clearInterval(interval);
+  }, [isPlaying, gameWon, sendMessage]);
+
+  useEffect(() => {
+    if (maze.length > 0) {
+      drawMaze();
+    }
+  }, [maze, drawMaze]);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (gameWon || !isPlaying) return;
+
+      if (["ArrowUp", "ArrowRight", "ArrowDown", "ArrowLeft"].includes(e.key)) {
+        e.preventDefault();
+        simulateKeyPress(e.key);
+      }
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [gameWon, isPlaying, simulateKeyPress]);
 
   return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-gray-100 p-4">
@@ -430,7 +431,8 @@ const MazeRunner: React.FC = () => {
             exit={{ opacity: 0, y: -20 }}
             className="mt-6 text-2xl font-semibold text-green-600 bg-green-100 px-6 py-3 rounded-full"
           >
-            Congratulations! You've reached the end in {formatTime(timeElapsed)}!
+            Congratulations! You&apos;ve reached the end in{" "}
+            {formatTime(timeElapsed)}!
           </motion.div>
         )}
       </AnimatePresence>
