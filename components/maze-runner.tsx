@@ -15,8 +15,8 @@ import useWebSocket from "react-use-websocket";
 
 const CELL_SIZE = 25;
 const PLAYER_SIZE = 15;
-const MAZE_WIDTH = 20;
-const MAZE_HEIGHT = 15;
+const MAZE_WIDTH = 10;
+const MAZE_HEIGHT = 8;
 
 type Cell = {
   x: number;
@@ -38,11 +38,16 @@ const MazeRunner: React.FC = () => {
 
   // Basic WebSocket setup
   const { sendMessage, lastMessage } = useWebSocket("ws://localhost:5000", {
-    onOpen: () => console.log("WebSocket connection established."),
+    onOpen: () => {
+      console.log("WebSocket connection established.");
+      sendMessage(JSON.stringify({ type: "test" }));
+    },
     onClose: () => console.log("WebSocket connection closed."),
     onError: (error) => console.error("WebSocket error:", error),
-    //Will attempt to reconnect on all close events, such as server shutting down
     shouldReconnect: () => true,
+    reconnectInterval: 3000,
+    reconnectAttempts: 10,
+    share: true, // Enable sharing the WebSocket connection
   });
 
   const generateMaze = useCallback(() => {
@@ -75,6 +80,41 @@ const MazeRunner: React.FC = () => {
         removeWall(currentCell, nextCell, direction);
         nextCell.visited = true;
         stack.push(nextCell);
+      }
+    }
+    
+    // Add shortcuts to simplify the maze by removing additional walls
+    for (let y = 0; y < MAZE_HEIGHT; y++) {
+      for (let x = 0; x < MAZE_WIDTH; x++) {
+        // 30% chance to remove an additional wall if it's not an exterior wall
+        if (Math.random() < 0.3) {
+          const cell = newMaze[y][x];
+          const possibleWalls = [];
+          
+          if (y > 0 && cell.walls.top) possibleWalls.push('top');
+          if (x < MAZE_WIDTH - 1 && cell.walls.right) possibleWalls.push('right');
+          if (y < MAZE_HEIGHT - 1 && cell.walls.bottom) possibleWalls.push('bottom');
+          if (x > 0 && cell.walls.left) possibleWalls.push('left');
+          
+          if (possibleWalls.length > 0) {
+            const wallToRemove = possibleWalls[Math.floor(Math.random() * possibleWalls.length)];
+            let neighborCell;
+            
+            if (wallToRemove === 'top' && y > 0) {
+              neighborCell = newMaze[y-1][x];
+              removeWall(cell, neighborCell, 'top');
+            } else if (wallToRemove === 'right' && x < MAZE_WIDTH - 1) {
+              neighborCell = newMaze[y][x+1];
+              removeWall(cell, neighborCell, 'right');
+            } else if (wallToRemove === 'bottom' && y < MAZE_HEIGHT - 1) {
+              neighborCell = newMaze[y+1][x];
+              removeWall(cell, neighborCell, 'bottom');
+            } else if (wallToRemove === 'left' && x > 0) {
+              neighborCell = newMaze[y][x-1];
+              removeWall(cell, neighborCell, 'left');
+            }
+          }
+        }
       }
     }
 
@@ -250,7 +290,6 @@ const MazeRunner: React.FC = () => {
             );
           }
 
-          drawMaze(newPos);
           return newPos;
         }
 
